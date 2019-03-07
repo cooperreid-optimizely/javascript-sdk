@@ -440,14 +440,9 @@ Optimizely.prototype.__filterEmptyValues = function (map) {
   return map;
 };
 
-/**
- * Returns true if the feature is enabled for the given user.
- * @param {string} featureKey   Key of feature which will be checked
- * @param {string} userId       ID of user which will be checked
- * @param {Object} attributes   Optional user attributes
- * @return {boolean}            True if the feature is enabled for the user, false otherwise
- */
-Optimizely.prototype.isFeatureEnabled = function (featureKey, userId, attributes) {
+function _getFeatureState (featureKey, userId, attributes, allowImpressions) {
+  allowImpressions = !!allowImpressions;
+
   try {
     if (!this.isValidInstance) {
       this.logger.log(LOG_LEVEL.ERROR, sprintf(LOG_MESSAGES.INVALID_OBJECT, MODULE_NAME, 'isFeatureEnabled'));
@@ -466,7 +461,7 @@ Optimizely.prototype.isFeatureEnabled = function (featureKey, userId, attributes
     var decision = this.decisionService.getVariationForFeature(feature, userId, attributes);
     var variation = decision.variation;
     if (!!variation) {
-      if (decision.decisionSource === DECISION_SOURCES.EXPERIMENT) {
+      if (allowImpressions && decision.decisionSource === DECISION_SOURCES.EXPERIMENT) {
         // got a variation from the exp, so we track the impression
         this._sendImpressionEvent(decision.experiment.key, decision.variation.key, userId, attributes);
       }
@@ -482,16 +477,43 @@ Optimizely.prototype.isFeatureEnabled = function (featureKey, userId, attributes
     this.errorHandler.handleError(e);
     return false;
   }
+}
+
+/**
+ * Returns true if the feature is enabled for the given user.
+ * Sends an impression when feature in a test
+ * @param {string} featureKey   Key of feature which will be checked
+ * @param {string} userId       ID of user which will be checked
+ * @param {Object} attributes   Optional user attributes
+ * @return {boolean}            True if the feature is enabled for the user, false otherwise
+ */
+Optimizely.prototype.isFeatureEnabled = function (featureKey, userId, attributes) {
+  return _getFeatureState.apply(this, [featureKey, userId, attributes, true]);
+};
+
+/**
+ * Returns true if the feature is enabled for the given user.
+ * Does not send an impression when feature in a test
+ * @param {string} featureKey   Key of feature which will be checked
+ * @param {string} userId       ID of user which will be checked
+ * @param {Object} attributes   Optional user attributes
+ * @return {boolean}            True if the feature is enabled for the user, false otherwise
+ */
+Optimizely.prototype.checkFeature = function (featureKey, userId, attributes) {
+  return _getFeatureState.apply(this, [featureKey, userId, attributes, false]);
 };
 
 /**
  * Returns an Array containing the keys of all features in the project that are
  * enabled for the given user.
+ * Conditionally sends an impression for each feature in a test
  * @param {string} userId
  * @param {Object} attributes
  * @return {Array} Array of feature keys (strings)
  */
-Optimizely.prototype.getEnabledFeatures = function (userId, attributes) {
+function _getEnabledFeatures (userId, attributes, allowImpressions) {
+  allowImpressions = !!allowImpressions;
+
   try {
     var enabledFeatures = [];
     if (!this.isValidInstance) {
@@ -504,7 +526,8 @@ Optimizely.prototype.getEnabledFeatures = function (userId, attributes) {
     }
 
     fns.forOwn(this.configObj.featureKeyMap, function (feature) {
-      if (this.isFeatureEnabled(feature.key, userId, attributes)) {
+      var featureStateFnc = allowImpressions ? 'isFeatureEnabled' : 'checkFeature';
+      if (this[featureStateFnc](feature.key, userId, attributes)) {
         enabledFeatures.push(feature.key);
       }
     }.bind(this));
@@ -515,6 +538,30 @@ Optimizely.prototype.getEnabledFeatures = function (userId, attributes) {
     this.errorHandler.handleError(e);
     return [];
   }
+};
+
+/**
+ * Returns an Array containing the keys of all features in the project that are
+ * enabled for the given user.
+ * Sends an impression for each feature in a test
+ * @param {string} userId
+ * @param {Object} attributes
+ * @return {Array} Array of feature keys (strings)
+ */
+Optimizely.prototype.getEnabledFeatures = function (userId, attributes) {
+  return _getEnabledFeatures.apply(this, [userId, attributes, true]);
+};
+
+/**
+ * Returns an Array containing the keys of all features in the project that are
+ * enabled for the given user. 
+ * Does not send an impression for each feature in a test
+ * @param {string} userId
+ * @param {Object} attributes
+ * @return {Array} Array of feature keys (strings)
+ */
+Optimizely.prototype.checkEnabledFeatures = function (userId, attributes) {
+  return _getEnabledFeatures.apply(this, [userId, attributes, false]);
 };
 
 /**
